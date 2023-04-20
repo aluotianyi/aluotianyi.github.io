@@ -1,0 +1,297 @@
+<!DOCTYPE html>
+<html>
+
+<head>
+  <meta charset="utf-8">
+  <style>
+    body,
+    div {
+      margin: 0;
+      padding: 0;
+    }
+  </style>
+</head>
+
+<body>
+  <div id="cas">
+    <canvas id="cs" width="800" height="600" style="border: 2px solid green"></canvas>
+  </div>
+
+  <script type="text/javascript">
+    // 'use strict'
+    let canvas = document.getElementById("cs");
+    // 获取canvas的宽高
+    let width = canvas.width;
+    let height = canvas.height;
+    let ctx = canvas.getContext("2d");
+    // 这里使用默认值即可
+    //ctx.globalCompositeOperation = "source-over";
+    let now = { x: 0, y: 0 };  // 鼠标的位置
+    let scaleMark = false
+    let current = -1;
+    let dropCurrent = -1
+    let dropActive = {
+      leftTop: false,
+      rightTop: false,
+      rightBottom: false,
+      leftBottom: false
+    }
+    let rewidth = 200;  // 重定义图片的宽度
+
+    let imgs = [];
+    // 创建img元素
+    Array.from({ length: 6 }, (a, i) => i).forEach(index => {
+      let img = document.createElement("img")
+      img.src = index + ".png";
+      // 当图片加载完成之后，将其绘制到canvas上,图片没有加载完成时，
+      // 图片的宽高是0，因为这时候图片其实是空的
+      img.onload = () => {
+        let h = resize(img, rewidth);
+        img.width = rewidth;
+        img.height = h;
+        let obj = {
+          img: img,
+          x: 0,
+          y: 0,
+          leftTopC: leftTopC,
+          rightTopC: rightTopC,
+          rightBottomC: rightBottomC,
+          leftBottomC: leftBottomC
+        };
+        imgs.push(obj);      // 每张图片的默认位置
+        drawCanvas(obj, "#FFFFFF");
+      };
+    });
+
+    // 添加鼠标事情，来实现图片的拖放功能。
+    // 当鼠标按下时，获取当前的坐标
+    canvas.onmousedown = e => {
+      let x = e.pageX - canvas.offsetLeft; // 后面这个是偏移量，但是在这里为0
+      let y = e.pageY - canvas.offsetTop;
+      now.x = x;
+      now.y = y;
+
+      // 点击触发时记录当下坐标，mouseUp触发时坐标偏移则重置拖拽状态
+      if (dropCurrent != -1) {
+        // 图片缩放激活检测
+        let dropObj = imgs[dropCurrent]
+        dropActive = {
+          leftTop: isPointInCircle(now, dropObj.leftTopC(dropObj.img)),
+          rightTop: isPointInCircle(now, dropObj.rightTopC(dropObj.img)),
+          rightBottom: isPointInCircle(now, dropObj.rightBottomC(dropObj.img)),
+          leftBottom: isPointInCircle(now, dropObj.leftBottomC(dropObj.img))
+        }
+      }
+      // 缩放激活状态下点击圆点时阻止接下来的重绘
+      if (dropActive.leftTop || dropActive.rightTop || dropActive.rightBottom || dropActive.leftBottom) {
+        scaleMark = true
+        return
+      } else {
+        scaleMark = false
+        dropCurrent = -1
+      }
+      // 清空当前的canvas图形
+      ctx.clearRect(0, 0, canvas.width, canvas.height);
+      imgs.forEach((obj, index) => {
+        if (isPointInRect(now, obj)) {
+          // 最上层的图片是最后绘制的，在图片重叠的情况下，
+          // 最先选中的是最底层的图片，最后一张被选中的图片
+          // 才是我们选中的图片。我们只需要操作重叠情况下的最后一张即可。
+          current = index;
+          dropCurrent = index
+        }
+        drawCanvas(obj, "#FFFFFF");
+      });
+
+      // 有图片被选中
+      if (current != -1) {
+        // 将当前选中元素移动到数组的最后，同时保证其它元素的保持原来的顺序
+        let obj = imgs[current]
+        for (let i = current; i < imgs.length - 1; i++) {
+          imgs[i] = imgs[i + 1];
+        }
+        imgs[imgs.length - 1] = obj;
+        // 别忘了现在 current 指向的是最后一张图片了。
+        current = imgs.length - 1;
+        dropCurrent = imgs.length - 1
+        // 绘制红色选中框		
+        ctx.clearRect(0, 0, canvas.width, canvas.height);
+        imgs.forEach((obj, index) => drawCanvas(obj, "#FFFFFF"))
+        drawRect(imgs[current], "red");
+        drawDropRect(imgs[current], dropCurrent)
+      }
+    };
+
+    // 在鼠标移动时，不断重绘制整个canvas
+    canvas.onmousemove = e => {
+      if (dropCurrent === -1) {
+        return
+      }
+      let x = e.pageX - canvas.offsetLeft;
+      let y = e.pageY - canvas.offsetTop;
+      if (dropActive.leftTop && scaleMark) {
+        ctx.clearRect(0, 0, canvas.width, canvas.height);
+        imgs.forEach((obj, index) => {
+          drawCanvas(obj, "#FFFFFF");
+          // 更新当前图片的坐标及大小
+          imgs[dropCurrent].x = imgs[dropCurrent].x + (x - now.x);
+          imgs[dropCurrent].y = imgs[dropCurrent].y + (y - now.y);
+          imgs[dropCurrent].img.width = imgs[dropCurrent].img.width + now.x - x
+          imgs[dropCurrent].img.height = imgs[dropCurrent].img.height + now.y - y
+          // 判断并即时矫正图片的坐标
+          moveDraw(obj, dropCurrent)
+          now.x = x; now.y = y;
+        });
+        return
+      }
+      if (dropActive.rightTop && scaleMark) {
+        ctx.clearRect(0, 0, canvas.width, canvas.height);
+        imgs.forEach((obj, index) => {
+          drawCanvas(obj, "#FFFFFF");
+          // 更新当前图片的坐标及大小
+          imgs[dropCurrent].y = imgs[dropCurrent].y + (y - now.y);
+          imgs[dropCurrent].img.width = imgs[dropCurrent].img.width + x - now.x
+          imgs[dropCurrent].img.height = imgs[dropCurrent].img.height + now.y - y
+          // 判断并即时矫正图片的坐标
+          moveDraw(obj, dropCurrent)
+          now.x = x; now.y = y;
+        });
+        return
+      }
+      if (dropActive.rightBottom && scaleMark) {
+        ctx.clearRect(0, 0, canvas.width, canvas.height);
+        imgs.forEach((obj, index) => {
+          drawCanvas(obj, "#FFFFFF");
+          // 更新当前图片的坐标及大小
+          imgs[dropCurrent].img.width = imgs[dropCurrent].img.width + x - now.x
+          imgs[dropCurrent].img.height = imgs[dropCurrent].img.height + y - now.y
+          // 判断并即时矫正图片的坐标
+          moveDraw(obj, dropCurrent)
+          now.x = x; now.y = y;
+        });
+        return
+      }
+      if (dropActive.leftBottom && scaleMark) {
+        ctx.clearRect(0, 0, canvas.width, canvas.height);
+        imgs.forEach((obj, index) => {
+          drawCanvas(obj, "#FFFFFF");
+          // 更新当前图片的坐标及大小
+          imgs[dropCurrent].x = imgs[dropCurrent].x + (x - now.x);
+          imgs[dropCurrent].img.width = imgs[dropCurrent].img.width + now.x - x
+          imgs[dropCurrent].img.height = imgs[dropCurrent].img.height + y - now.y
+          moveDraw(obj, dropCurrent)
+          now.x = x; now.y = y;
+        });
+        return
+      }
+      // 鼠标未按下或者未选中图片时则直接返回，不去响应该事件。
+      if (current == -1) {
+        return;
+      }
+      // 获取点的坐标可以封装成函数
+
+
+      // 清空当前的canvas图形
+      ctx.clearRect(0, 0, canvas.width, canvas.height);
+
+      imgs.forEach((obj, index) => {
+        drawCanvas(obj, "#FFFFFF");
+        // 更新当前图片的坐标，它一定是最后一张图片了!
+        imgs[current].x = imgs[current].x + (x - now.x);
+        imgs[current].y = imgs[current].y + (y - now.y);
+        moveDraw(obj, current)
+        now.x = x; now.y = y;
+      });
+    }
+
+    let stopDraw = e => {
+      current = -1;       // 鼠标松开，重置图片选中状态为未选中
+      scaleMark = false
+    }
+
+    // 鼠标松开和鼠标离开元素绑定相同的处理事件。
+    canvas.onmouseup = stopDraw;
+    canvas.onmouseout = stopDraw;
+    function moveDraw(obj, current) {
+      // 判断并即时矫正图片的坐标
+      judgePosition(imgs[current]);
+      imgs.forEach(obj => drawCanvas(obj, "#FFFFFF"));
+      drawRect(imgs[current], "red");
+      drawDropRect(imgs[current], current)
+    }
+    function drawCanvas(obj, color, index) {
+      // 绘制所有的图片，这里的宽高是缩放后的宽高
+      ctx.drawImage(obj.img, obj.x, obj.y, obj.img.width, obj.img.height);
+      drawRect(obj, color);
+      drawDropRect(obj, index)
+    }
+    // 判断点在某个矩形内
+    function isPointInRect(point, obj) {
+      return (
+        point.x >= obj.x &&
+        point.y >= obj.y &&
+        point.x <= obj.x + obj.img.width &&
+        point.y <= obj.y + obj.img.height
+      );
+    }
+    // 判断点在某个圆形内
+    function isPointInCircle(point, circle) {
+      const dx = point.x - circle.x;
+      const dy = point.y - circle.y;
+      const dSquare = dx * dx + dy * dy;
+      return dSquare <= 5 * 5;
+    }
+    // 绘制选中框
+    function drawRect(obj, color) {
+      // 绘制红色选中框
+      ctx.beginPath();
+      ctx.strokeStyle = color;
+      ctx.rect(obj.x, obj.y, obj.img.width, obj.img.height);
+      ctx.stroke();
+    }
+    function drawDropRect(obj, index) {
+      // 如果当前是未被选中图片，则不绘制
+      if (dropCurrent !== index) return false
+      ctx.beginPath();
+      ctx.arc(obj.leftTopC(obj.img).x, obj.leftTopC(obj.img).y, 5, 0, 2 * Math.PI);
+      ctx.stroke();
+      ctx.beginPath();
+      ctx.arc(obj.rightTopC(obj.img).x, obj.rightTopC(obj.img).y, 5, 0, 2 * Math.PI);
+      ctx.stroke();
+      ctx.beginPath();
+      ctx.arc(obj.rightBottomC(obj.img).x, obj.rightBottomC(obj.img).y, 5, 0, 2 * Math.PI);
+      ctx.stroke();
+      ctx.beginPath();
+      ctx.arc(obj.leftBottomC(obj.img).x, obj.leftBottomC(obj.img).y, 5, 0, 2 * Math.PI);
+      ctx.stroke();
+    }
+    // 根据传如的指定宽度，自动调整高度
+    function resize(img, width) {
+      let w = img.width;
+      let h = img.height;
+      return parseInt(h * width / w);
+    }
+
+    // 判断位置，当点越界时，进行处理
+    function judgePosition(obj) {
+      // 这里只需要考虑点的坐标值即可，两个点，4个坐标判断四种情况。
+      obj.x = obj.x < 0 ? 0 : (obj.x + obj.img.width) < width ? obj.x : width - obj.img.width;
+      obj.y = obj.y < 0 ? 0 : (obj.y + obj.img.height) < height ? obj.y : height - obj.img.height;
+    }
+    // 图片边上拓展圆中心点计算，因为需要根据图片当前坐标动态生成，故基于函数封装
+    function leftTopC(img) {
+      return { x: this.x - 5, y: this.y - 5 }
+    }
+    function rightTopC(img) {
+      return { x: this.x + 5 + img.width, y: this.y - 5 }
+    }
+    function rightBottomC(img) {
+      return { x: this.x + 5 + img.width, y: this.y + 5 + img.height }
+    }
+    function leftBottomC(img) {
+      return { x: this.x - 5, y: this.y + 5 + img.height }
+    }
+  </script>
+</body>
+
+</html>
